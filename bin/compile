@@ -31,35 +31,27 @@ function indent() {
   esac
 }
 
-# Detect requested channel or default to stable
-if [ -f $ENV_DIR/GOOGLE_CHROME_CHANNEL ]; then
-  channel=$(cat $ENV_DIR/GOOGLE_CHROME_CHANNEL)
-else
-  channel=stable
-fi
+# Default to stable
+channel=stable
 
-# Setup bin and shim locations for desired channel, and detect invalid channels
-case "$channel" in
-  "stable")
-    BIN=chrome/chrome
-    SHIM=google-chrome-stable
-    ;;
-  "beta")
-    BIN=chrome-beta/chrome
-    SHIM=google-chrome-beta
-    ;;
-  "unstable")
-    BIN=chrome-unstable/chrome
-    SHIM=google-chrome-unstable
-    ;;
-  *)
-    error "GOOGLE_CHROME_CHANNEL must be 'stable', 'beta', or 'unstable', not '$channel'."
-    ;;
-esac
+# Detect chrome version
+if [ -f $ENV_DIR/GOOGLE_CHROME_VERSION ]; then
+  VERSION=$(cat $ENV_DIR/GOOGLE_CHROME_VERSION)
+else
+  VERSION=81.0.4044.138
+fi
+# Setup bin and shim locations for stable channel
+BIN=chrome/chrome
+SHIM=google-chrome-stable
+
+stack=${STACK:-heroku-16}
 
 # Install correct dependencies according to $STACK
 case "${STACK}" in
-  "heroku-18" | "heroku-20")
+  "cedar-14")
+    PACKAGES="libxss1"
+    ;;
+  "heroku-16" | "heroku-18" | "heroku-20")
     # the package list is found by using ci:debug then running ldd $GOOGLE_CHROME_BIN | grep not
     # also look here for more packages/notes https://developers.google.com/web/tools/puppeteer/troubleshooting
     PACKAGES="
@@ -102,10 +94,9 @@ if [ ! -f $CACHE_DIR/PURGED_CACHE_V1 ]; then
   touch $CACHE_DIR/PURGED_CACHE_V1
 fi
 
-topic "Installing Google Chrome from the $channel channel."
+topic "Installing Google Chrome version $VERSION from the stable channel"
 
-PACKAGES="$PACKAGES https://dl.google.com/linux/direct/google-chrome-${channel}_current_amd64.deb"
-
+PACKAGES="$PACKAGES https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-${channel}/google-chrome-${channel}_${VERSION}-1_amd64.deb"
 APT_CACHE_DIR="$CACHE_DIR/apt/cache"
 APT_STATE_DIR="$CACHE_DIR/apt/state"
 
@@ -133,8 +124,18 @@ done
 mkdir -p $BUILD_DIR/.apt
 
 for DEB in $(ls -1 $APT_CACHE_DIR/archives/*.deb); do
-  topic "Installing $(basename $DEB)"
-  dpkg -x $DEB $BUILD_DIR/.apt/
+  DEB_FILE=$(basename $DEB)
+  if [[ "${DEB_FILE}" == "google-chrome-stable"* ]]; then
+    if [ "${DEB_FILE}" == "google-chrome-stable_${VERSION}-1_amd64.deb" ]; then
+      topic "Installing ${DEB_FILE}"
+      dpkg -x $DEB $BUILD_DIR/.apt/
+    else
+      topic "Skipping ${DEB_FILE}"
+    fi
+  else
+    topic "Installing ${DEB_FILE}"
+    dpkg -x $DEB $BUILD_DIR/.apt/
+  fi
 done
 
 topic "Writing profile script"
